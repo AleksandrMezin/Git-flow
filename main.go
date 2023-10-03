@@ -2,7 +2,7 @@ package main
 
 import (
 	"bufio"
-	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -45,31 +45,33 @@ func (r *RingIntBuffer) Get() []int {
 	return output
 }
 
-func read(nextStage chan<- int, done chan bool) {
+func read(nextStage chan<- int, done chan bool, logger *log.Logger) {
 	scanner := bufio.NewScanner(os.Stdin)
 	var data string
 	for scanner.Scan() {
 		data = scanner.Text()
 		if strings.EqualFold(data, "exit") {
-			fmt.Println("the program complete work")
+			logger.Println("The program completed its work")
 			close(done)
 			return
 		}
 		i, err := strconv.Atoi(data)
 		if err != nil {
-			fmt.Println("The program handles only whole numbers")
+			logger.Println("The program handles only whole numbers")
 			continue
 		}
 		nextStage <- i
 	}
 }
 
-func negativeFilterStageInt(previousStageChannel <-chan int, nextStageChannel chan<- int, done <-chan bool) {
+func negativeFilterStageInt(previousStageChannel <-chan int, nextStageChannel chan<- int, done <-chan bool, logger *log.Logger) {
 	for {
 		select {
 		case data := <-previousStageChannel:
 			if data > 0 {
 				nextStageChannel <- data
+			} else {
+				logger.Printf("Negative value filtered out: %d\n", data)
 			}
 		case <-done:
 			return
@@ -77,12 +79,14 @@ func negativeFilterStageInt(previousStageChannel <-chan int, nextStageChannel ch
 	}
 }
 
-func notDevideThreeFunc(previousStageChannel <-chan int, nextStageChannel chan<- int, done <-chan bool) {
+func notDevideThreeFunc(previousStageChannel <-chan int, nextStageChannel chan<- int, done <-chan bool, logger *log.Logger) {
 	for {
 		select {
 		case data := <-previousStageChannel:
 			if data%3 == 0 {
 				nextStageChannel <- data
+			} else {
+				logger.Printf("Value not divisible by 3 filtered out: %d\n", data)
 			}
 		case <-done:
 			return
@@ -90,7 +94,7 @@ func notDevideThreeFunc(previousStageChannel <-chan int, nextStageChannel chan<-
 	}
 }
 
-func bufferStageFunc(previousStageChannel <-chan int, nextStageChannel chan<- int, done <-chan bool, size int, interval time.Duration) {
+func bufferStageFunc(previousStageChannel <-chan int, nextStageChannel chan<- int, done <-chan bool, size int, interval time.Duration, logger *log.Logger) {
 	buffer := NewRingIntBuffer(size)
 	for {
 		select {
@@ -112,20 +116,22 @@ func bufferStageFunc(previousStageChannel <-chan int, nextStageChannel chan<- in
 func main() {
 	input := make(chan int)
 	done := make(chan bool)
-	go read(input, done)
+	logger := log.New(os.Stdout, "LOG: ", log.Ldate|log.Ltime)
+
+	go read(input, done, logger)
 	negativeFilterChannel := make(chan int)
-	go negativeFilterStageInt(input, negativeFilterChannel, done)
+	go negativeFilterStageInt(input, negativeFilterChannel, done, logger)
 	notDevidedThreeChannel := make(chan int)
-	go notDevideThreeFunc(negativeFilterChannel, notDevidedThreeChannel, done)
+	go notDevideThreeFunc(negativeFilterChannel, notDevidedThreeChannel, done, logger)
 	bufferedIntChannel := make(chan int)
 	bufferSize := 10
 	bufferDrainInterval := 30 * time.Second
-	go bufferStageFunc(notDevidedThreeChannel, bufferedIntChannel, done, bufferSize, bufferDrainInterval)
+	go bufferStageFunc(notDevidedThreeChannel, bufferedIntChannel, done, bufferSize, bufferDrainInterval, logger)
 
 	for {
 		select {
 		case data := <-bufferedIntChannel:
-			fmt.Println("Processed data,", data)
+			logger.Printf("Processed data: %d\n", data)
 		case <-done:
 			return
 		}
