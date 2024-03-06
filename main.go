@@ -57,7 +57,7 @@ func read(nextStage chan<- int, done chan bool, logger *log.Logger) {
 		}
 		i, err := strconv.Atoi(data)
 		if err != nil {
-			logger.Println("The program handles only whole numbers")
+			logger.Println("The programs handles only whole numbers")
 			continue
 		}
 		nextStage <- i
