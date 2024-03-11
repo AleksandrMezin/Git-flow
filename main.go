@@ -45,19 +45,20 @@ func (r *RingIntBuffer) Get() []int {
 	return output
 }
 
-func read(nextStage chan<- int, done chan bool, logger *log.Logger) {
+func read(nextStage chan<- int, done chan<- bool, wg *sync.WaitGroup) {
+	defer wg.Done()
 	scanner := bufio.NewScanner(os.Stdin)
 	var data string
 	for scanner.Scan() {
 		data = scanner.Text()
 		if strings.EqualFold(data, "exit") {
-			logger.Println("The program completed its work")
-			close(done)
+			log.Println("The program completed its work")
+			done <- true
 			return
 		}
 		i, err := strconv.Atoi(data)
 		if err != nil {
-			logger.Println("The programs handles only whole numbers")
+			log.Println("The programs handles only whole numbers")
 			continue
 		}
 		nextStage <- i
@@ -113,12 +114,26 @@ func bufferStageFunc(previousStageChannel <-chan int, nextStageChannel chan<- in
 	}
 }
 
+func asyncLogger(args ...interface{}) {
+	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("Recover from Panic: %s\n", err)
+			}
+		}()
+		log.Println(args...)
+	}()
+}
+
 func main() {
+	wg := &sync.WaitGroup{}
 	input := make(chan int)
 	done := make(chan bool)
+	wg.Add(1)
+	go read(input, done, wg)
+
 	logger := log.New(os.Stdout, "LOG: ", log.Ldate|log.Ltime)
 
-	go read(input, done, logger)
 	negativeFilterChannel := make(chan int)
 	go negativeFilterStageInt(input, negativeFilterChannel, done, logger)
 	notDevidedThreeChannel := make(chan int)
@@ -130,10 +145,19 @@ func main() {
 
 	for {
 		select {
-		case data := <-bufferedIntChannel:
+		case data, ok := <-bufferedIntChannel:
+
+			if !ok {
+				asyncLogger("Done processing pipeline")
+				wg.Wait()
+				return
+			}
 			logger.Printf("Processed data: %d\n", data)
 		case <-done:
-			return
+			close(input)
+			close(negativeFilterChannel)
+			close(notDevidedThreeChannel)
+			close(bufferedIntChannel)
 		}
 	}
 }
